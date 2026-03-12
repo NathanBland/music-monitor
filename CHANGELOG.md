@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.1.4] - 2026-03-12
+
 ### Security
 - Added startup validation that rejects overlapping `watch_path`/`output_path` roots to prevent recursive self-processing loops.
 - Added an upper collision bound for destination naming (`MAX_COLLISION_INDEX`) with explicit failure after exhaustion.

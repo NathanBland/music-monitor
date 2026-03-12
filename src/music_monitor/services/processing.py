@@ -212,12 +212,31 @@ def _copy_verify_and_remove_source(source: Path, destination: Path) -> None:
         destination_size_bytes = destination.stat().st_size
         if destination_size_bytes != source_size_bytes:
             raise ValueError("destination file size mismatch after copy")
-    except Exception:
-        if destination_created:
-            destination.unlink(missing_ok=True)
-        raise
 
-    source.unlink()
+        source.unlink()
+    except Exception as error:
+        if isinstance(error, OSError):
+            LOGGER.warning(
+                "source_delete_or_copy_failed",
+                extra={
+                    "source": str(source),
+                    "destination": str(destination),
+                    "error": str(error),
+                },
+            )
+        if destination_created:
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                LOGGER.warning(
+                    "destination_cleanup_delete_failed",
+                    extra={
+                        "source": str(source),
+                        "destination": str(destination),
+                        "error": str(cleanup_error),
+                    },
+                )
+        raise
 
 
 def _remove_empty_source_parent_directories(source: Path, watch_root: Path) -> None:
@@ -233,6 +252,10 @@ def _remove_empty_source_parent_directories(source: Path, watch_root: Path) -> N
     while current_parent != resolved_watch_root:
         try:
             current_parent.rmdir()
-        except OSError:
+        except OSError as error:
+            LOGGER.info(
+                "source_parent_cleanup_skipped",
+                extra={"directory": str(current_parent), "error": str(error)},
+            )
             return
         current_parent = current_parent.parent

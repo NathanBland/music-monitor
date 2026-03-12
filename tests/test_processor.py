@@ -260,6 +260,57 @@ async def test_process_with_retry_cleans_destination_when_copy_size_mismatch(
 
 
 @pytest.mark.asyncio
+async def test_process_with_retry_cleans_destination_when_source_unlink_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "track.mp3"
+    source.write_bytes(b"abcdef")
+
+    config = AppConfig(
+        watch_path=tmp_path,
+        output_path=tmp_path / "library",
+        backoff=BackoffConfig(initial_seconds=0.0, max_seconds=0.0, attempts=1),
+    )
+    client = LidarrClient(base_url="", api_key="")
+    service = ProcessingService(config=config, lidarr_client=client)
+
+    metadata = TrackMetadata(
+        source_path=source,
+        artist_name="Artist",
+        album_title="Album",
+        track_title="Track",
+        track_number=1,
+        track_total=12,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2024",
+    )
+
+    async def fake_lookup(_artist: str, _album: str):
+        return AlbumLookupResult(album_art_bytes=None, release_year=None)
+
+    original_unlink = Path.unlink
+
+    def fake_unlink(path: Path, *args, **kwargs) -> None:
+        if path == source:
+            raise PermissionError("source still busy")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(client, "fetch_album_lookup", fake_lookup)
+    monkeypatch.setattr("music_monitor.services.processing.read_track_metadata", lambda _p: metadata)
+    monkeypatch.setattr("music_monitor.services.processing.write_track_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("pathlib.Path.unlink", fake_unlink)
+
+    await service._process_with_retry(source)
+
+    destination = config.output_path / "Artist/Album (2024)/Artist - Album - 01 - Track.mp3"
+    failed_destination = tmp_path / "failed" / "track.mp3"
+    assert not destination.exists()
+    assert failed_destination.exists()
+
+
+@pytest.mark.asyncio
 async def test_process_with_retry_handles_concurrent_destination_collision(
     monkeypatch, tmp_path: Path
 ) -> None:

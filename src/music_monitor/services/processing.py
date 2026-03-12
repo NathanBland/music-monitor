@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
-from dataclasses import dataclass, field
+from collections.abc import Iterator
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Iterator
 
 import mediafile
 
@@ -16,9 +16,9 @@ from music_monitor.mapping.paths import build_destination_path
 from music_monitor.metadata.beets_writer import read_track_metadata, write_track_metadata
 from music_monitor.types import AlbumLookupResult, NamingFormats, TrackMetadata
 
-
 LOGGER = logging.getLogger(__name__)
 MAX_PROCESSED_SNAPSHOT_ENTRIES = 2048
+MAX_COLLISION_INDEX = 10_000
 NON_RETRYABLE_PROCESSING_EXCEPTIONS = (FileExistsError, ValueError)
 
 
@@ -43,9 +43,9 @@ class ProcessingService:
         )
 
         for audio_path in audio_files:
-            await self._process_with_retry(audio_path)
+            await self._process_with_retry(audio_path, source_cleanup_root=album_directory)
 
-    async def _process_with_retry(self, audio_path: Path) -> None:
+    async def _process_with_retry(self, audio_path: Path, source_cleanup_root: Path | None = None) -> None:
         """Process one file with exponential backoff and failed-folder fallback."""
         file_snapshot = _build_file_snapshot(audio_path)
         if file_snapshot and self._is_recently_processed(audio_path, file_snapshot):
@@ -57,7 +57,7 @@ class ProcessingService:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                await self._process_single_file(audio_path)
+                await self._process_single_file(audio_path, source_cleanup_root=source_cleanup_root)
                 if file_snapshot:
                     self._mark_processed(audio_path, file_snapshot)
                 LOGGER.info("file_processed", extra={"file": str(audio_path), "attempt": attempt})
@@ -67,6 +67,10 @@ class ProcessingService:
                     "file_processing_failed",
                     extra={"file": str(audio_path), "attempt": attempt, "error": str(error)},
                 )
+
+                if not audio_path.exists():
+                    LOGGER.info("source_file_missing_skip", extra={"file": str(audio_path), "attempt": attempt})
+                    return
 
                 if isinstance(error, NON_RETRYABLE_PROCESSING_EXCEPTIONS):
                     self._move_to_failed(audio_path)
@@ -79,12 +83,11 @@ class ProcessingService:
                 await asyncio.sleep(delay_seconds)
                 delay_seconds = min(delay_seconds * 2, self.config.backoff.max_seconds)
 
-    async def _process_single_file(self, audio_path: Path) -> None:
+    async def _process_single_file(self, audio_path: Path, source_cleanup_root: Path | None = None) -> None:
         """Read, enrich, retag, and move a single audio file to its destination."""
         metadata = read_track_metadata(audio_path)
         lookup_result = await self.lidarr_client.fetch_album_lookup(metadata.artist_name, metadata.album_title)
         metadata = _apply_lookup_result_to_metadata(metadata, lookup_result)
-        write_track_metadata(audio_path, metadata, lookup_result.album_art_bytes)
 
         base_destination = build_destination_path(
             output_root=self.config.output_path,
@@ -98,12 +101,29 @@ class ProcessingService:
         final_destination = constrained_destination
         final_destination.parent.mkdir(parents=True, exist_ok=True)
 
+        if self.config.dry_run:
+            LOGGER.info(
+                "dry_run_file_processing",
+                extra={"source": str(audio_path), "destination": str(final_destination)},
+            )
+            return
+
+        write_track_metadata(audio_path, metadata, lookup_result.album_art_bytes)
         _copy_verify_and_remove_source(audio_path, final_destination)
-        _remove_empty_source_parent_directories(audio_path, self.config.watch_path)
+        cleanup_root = source_cleanup_root or audio_path.parent
+        _remove_empty_source_parent_directories(
+            source=audio_path,
+            watch_root=self.config.watch_path,
+            cleanup_root=cleanup_root,
+        )
         LOGGER.info("file_moved", extra={"source": str(audio_path), "destination": str(final_destination)})
 
     def _move_to_failed(self, source_path: Path) -> None:
         """Move a file into the configured failed directory."""
+        if not source_path.exists():
+            LOGGER.info("source_missing_before_failed_move", extra={"source": str(source_path)})
+            return
+
         failed_root = self.config.watch_path / self.config.failed_subdir
         failed_root.mkdir(parents=True, exist_ok=True)
 
@@ -130,13 +150,13 @@ class ProcessingService:
 
 
 def discover_audio_files(root: Path) -> Iterator[Path]:
-    """Yield valid audio files from a directory tree, skipping unsupported inputs."""
-    for path in root.rglob("*"):
+    """Yield valid audio files directly under a directory, skipping unsupported inputs."""
+    for path in root.iterdir():
         if not path.is_file():
             continue
 
         if path.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
-            LOGGER.error("non_audio_file_detected", extra={"file": str(path)})
+            LOGGER.debug("non_audio_file_detected", extra={"file": str(path)})
             continue
 
         try:
@@ -158,11 +178,13 @@ def ensure_unique_destination(destination: Path) -> Path:
     parent = destination.parent
 
     collision_index = 1
-    while True:
+    while collision_index <= MAX_COLLISION_INDEX:
         candidate = parent / f"{stem} ({collision_index}){suffix}"
         if not candidate.exists():
             return candidate
         collision_index += 1
+
+    raise FileExistsError(f"unable to find unique destination for {destination} after {MAX_COLLISION_INDEX} collisions")
 
 
 def _build_file_snapshot(path: Path) -> tuple[int, int] | None:
@@ -175,12 +197,10 @@ def _build_file_snapshot(path: Path) -> tuple[int, int] | None:
     return (stat_result.st_size, stat_result.st_mtime_ns)
 
 
-def _apply_lookup_result_to_metadata(
-    metadata: TrackMetadata, lookup_result: AlbumLookupResult
-) -> TrackMetadata:
+def _apply_lookup_result_to_metadata(metadata: TrackMetadata, lookup_result: AlbumLookupResult) -> TrackMetadata:
     """Apply selected lookup fields to metadata when local values are missing."""
     if metadata.release_year == "Unknown" and lookup_result.release_year:
-        metadata.release_year = lookup_result.release_year
+        return replace(metadata, release_year=lookup_result.release_year)
     return metadata
 
 
@@ -202,10 +222,9 @@ def _copy_verify_and_remove_source(source: Path, destination: Path) -> None:
     source_size_bytes = source.stat().st_size
     destination_created = False
     try:
-        with source.open("rb") as source_file:
-            with destination.open("xb") as destination_file:
-                destination_created = True
-                shutil.copyfileobj(source_file, destination_file)
+        with source.open("rb") as source_file, destination.open("xb") as destination_file:
+            destination_created = True
+            shutil.copyfileobj(source_file, destination_file)
 
         shutil.copystat(str(source), str(destination))
 
@@ -239,13 +258,18 @@ def _copy_verify_and_remove_source(source: Path, destination: Path) -> None:
         raise
 
 
-def _remove_empty_source_parent_directories(source: Path, watch_root: Path) -> None:
-    """Remove empty source parent directories up to, but not including, the watch root."""
+def _remove_empty_source_parent_directories(source: Path, watch_root: Path, cleanup_root: Path) -> None:
+    """Remove empty source parent directories up to and including the configured cleanup root."""
     resolved_watch_root = watch_root.resolve()
+    resolved_cleanup_root = cleanup_root.resolve()
     current_parent = source.parent
 
     try:
         current_parent.resolve().relative_to(resolved_watch_root)
+    except ValueError:
+        return
+    try:
+        current_parent.resolve().relative_to(resolved_cleanup_root)
     except ValueError:
         return
 
@@ -275,6 +299,8 @@ def _remove_empty_source_parent_directories(source: Path, watch_root: Path) -> N
                 extra={"directory": str(current_parent)},
             )
 
+        if current_parent == resolved_cleanup_root:
+            return
         current_parent = current_parent.parent
 
 

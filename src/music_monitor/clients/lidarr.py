@@ -3,13 +3,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import SplitResult, urlsplit
 from typing import Any
+from urllib.parse import SplitResult, urlsplit
 
 import httpx
 
 from music_monitor.types import AlbumLookupResult, NamingFormats
-
 
 LOGGER = logging.getLogger(__name__)
 NAMING_CONFIG_ENDPOINT = "/api/v1/config/naming"

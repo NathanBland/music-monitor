@@ -3,11 +3,11 @@ from __future__ import annotations
 import inspect
 import logging
 from pathlib import Path
+from typing import SupportsInt, cast
 
 import mediafile
 
 from music_monitor.types import TrackMetadata
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def _write_artwork(target_media: mediafile.MediaFile, album_art_bytes: bytes) ->
 
 def _build_image(image_class: type, album_art_bytes: bytes) -> object | None:
     """Construct an image object using the first compatible constructor signature."""
-    image_signatures = [
+    image_signatures: list[dict[str, object]] = [
         {"data": album_art_bytes, "mime_type": "image/jpeg", "type": 3},
         {"data": album_art_bytes, "type": 3},
         {"data": album_art_bytes},
@@ -104,12 +104,12 @@ def _build_image(image_class: type, album_art_bytes: bytes) -> object | None:
             continue
 
         try:
-            return image_class(**signature)
+            return cast(object, image_class(**signature))
         except Exception:
             continue
 
     try:
-        return image_class(album_art_bytes)
+        return cast(object, image_class(album_art_bytes))
     except Exception:
         return None
 
@@ -129,7 +129,7 @@ def _safe_int(value: object, fallback: int) -> int:
     try:
         if value is None:
             return fallback
-        return int(value)
+        return int(cast(str | bytes | bytearray | SupportsInt, value))
     except (TypeError, ValueError):
         return fallback
 

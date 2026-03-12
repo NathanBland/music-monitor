@@ -7,7 +7,6 @@ from pathlib import Path
 from music_monitor.config import AppConfig
 from music_monitor.constants import SUPPORTED_AUDIO_EXTENSIONS
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -60,7 +59,7 @@ class DirectoryWatcher:
                     if not candidate.exists() or not candidate.is_file():
                         continue
                     if candidate.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
-                        LOGGER.error("non_audio_file_detected", extra={"file": str(candidate)})
+                        LOGGER.debug("non_audio_file_detected", extra={"file": str(candidate)})
                         continue
 
                     await self.album_queue.put(candidate.parent)

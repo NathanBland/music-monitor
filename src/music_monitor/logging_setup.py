@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from pythonjsonlogger import jsonlogger
 
@@ -15,14 +15,12 @@ def configure_logging(level: str, log_file: Path, max_bytes: int, backup_count: 
     root = logging.getLogger()
     root.setLevel(level.upper())
 
-    formatter = jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    formatter = jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")  # type: ignore[attr-defined]
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
 
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=max_bytes, backupCount=backup_count
-    )
+    file_handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
     file_handler.setFormatter(formatter)
 
     for handler in list(_iter_handlers(root)):
@@ -34,5 +32,4 @@ def configure_logging(level: str, log_file: Path, max_bytes: int, backup_count: 
 
 def _iter_handlers(logger: logging.Logger) -> Iterable[logging.Handler]:
     """Yield logger handlers via a dedicated iterator helper for safe copying."""
-    for handler in logger.handlers:
-        yield handler
+    yield from logger.handlers

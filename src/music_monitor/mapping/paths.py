@@ -10,7 +10,6 @@ from music_monitor.constants import (
 )
 from music_monitor.types import NamingFormats, TrackMetadata
 
-
 INVALID_PATH_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 REPLACED_ILLEGAL_CHARACTERS_PATTERN = re.compile(r"[,&]")
 WHITESPACE_PATTERN = re.compile(r"\s+")

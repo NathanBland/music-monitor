@@ -253,9 +253,61 @@ def _remove_empty_source_parent_directories(source: Path, watch_root: Path) -> N
         try:
             current_parent.rmdir()
         except OSError as error:
+            if _contains_audio_files(current_parent):
+                LOGGER.info(
+                    "source_parent_cleanup_skipped_audio_remaining",
+                    extra={"directory": str(current_parent), "error": str(error)},
+                )
+                return
+
+            _remove_non_audio_contents(current_parent)
+            try:
+                current_parent.rmdir()
+            except OSError as cleanup_error:
+                LOGGER.info(
+                    "source_parent_cleanup_skipped",
+                    extra={"directory": str(current_parent), "error": str(cleanup_error)},
+                )
+                return
+
             LOGGER.info(
-                "source_parent_cleanup_skipped",
-                extra={"directory": str(current_parent), "error": str(error)},
+                "source_parent_cleanup_non_audio_removed",
+                extra={"directory": str(current_parent)},
             )
-            return
+
         current_parent = current_parent.parent
+
+
+def _contains_audio_files(directory: Path) -> bool:
+    """Return whether a directory tree contains files with supported audio extensions."""
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
+            return True
+    return False
+
+
+def _remove_non_audio_contents(directory: Path) -> None:
+    """Delete non-audio files and empty subdirectories under a directory."""
+    subpaths = sorted(directory.rglob("*"), key=lambda path: len(path.parts), reverse=True)
+    for subpath in subpaths:
+        if subpath.is_file():
+            if subpath.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
+                continue
+            try:
+                subpath.unlink()
+            except OSError as error:
+                LOGGER.info(
+                    "source_non_audio_delete_skipped",
+                    extra={"path": str(subpath), "error": str(error)},
+                )
+            continue
+
+        if not subpath.is_dir():
+            continue
+
+        try:
+            subpath.rmdir()
+        except OSError:
+            continue

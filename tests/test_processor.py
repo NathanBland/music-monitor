@@ -119,7 +119,9 @@ async def test_process_single_file_writes_metadata_and_moves(monkeypatch, tmp_pa
     source_parent = watch_path / "Artist" / "Album"
     source_parent.mkdir(parents=True)
     source = source_parent / "track.mp3"
+    album_art = source_parent / "Folder.jpg"
     source.write_bytes(b"x")
+    album_art.write_bytes(b"img")
 
     config = AppConfig(watch_path=watch_path, output_path=tmp_path / "library")
     client = LidarrClient(base_url="", api_key="")
@@ -156,6 +158,7 @@ async def test_process_single_file_writes_metadata_and_moves(monkeypatch, tmp_pa
     expected = config.output_path / "Artist/Album (2024)/Artist - Album - 01 - Track.mp3"
     assert expected.exists()
     assert not source.exists()
+    assert not album_art.exists()
     assert not source_parent.exists()
     assert watch_path.exists()
     assert writes["art"] == b"img"

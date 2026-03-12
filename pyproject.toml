@@ -1,0 +1,28 @@
+[project]
+name = "music-monitor"
+version = "0.1.0"
+description = "Folder watcher that tags audio with beets, consults Lidarr, and organizes output"
+readme = "README.md"
+authors = [{ name = "Music Monitor Team", email = "dev@example.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+  "beets==2.7.1",
+  "httpx>=0.27.0",
+  "typing-extensions>=4.12.0",
+  "watchfiles>=0.23.0",
+  "python-json-logger>=2.0.7",
+]
+
+[project.scripts]
+music-monitor = "music_monitor.__main__:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"

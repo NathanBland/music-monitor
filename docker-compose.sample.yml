@@ -1,0 +1,17 @@
+services:
+  music-monitor:
+    image: ghcr.io/your-org/music-monitor:latest
+    container_name: music-monitor
+    restart: unless-stopped
+    volumes:
+      - ./watch:/data/watch
+      - ./output:/data/output
+      - ./logs:/logs
+      - ./config.toml:/app/config.toml:ro
+    environment:
+      LIDARR_BASE_URL: "http://lidarr:8686"
+      LIDARR_API_KEY: "replace-with-your-lidarr-api-key"
+      LOG_LEVEL: "INFO"
+      MUSIC_MONITOR_WATCH_PATH: "/data/watch"
+      MUSIC_MONITOR_OUTPUT_PATH: "/data/output"
+    command: ["uv", "run", "music-monitor", "--config", "/app/config.toml"]

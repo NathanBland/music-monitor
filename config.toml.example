@@ -1,0 +1,20 @@
+watch_path = "/data/watch"
+output_path = "/data/output"
+failed_subdir = "failed"
+workers = 4
+
+[lidarr]
+base_url = "http://lidarr:8686"
+api_key = "set-me"
+timeout_seconds = 10.0
+
+[logging]
+level = "INFO"
+file_path = "/logs/music-monitor.log"
+max_bytes = 1000000
+backup_count = 3
+
+[backoff]
+initial_seconds = 1.0
+max_seconds = 30.0
+attempts = 10

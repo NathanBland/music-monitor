@@ -1,0 +1,49 @@
+# VCS
+.git/
+.gitignore
+
+# Python/cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Local runtime data and logs
+logs/
+*.log
+watch/
+output/
+
+# Local config overrides and editor files
+config.toml
+.vscode/
+.idea/
+.DS_Store
+
+# CI/docs/test assets not needed at image build time
+.github/
+tests/
+pytest.ini
+
+# Keep required files in context
+!README.md
+!pyproject.toml
+!src/
+!config.toml.example

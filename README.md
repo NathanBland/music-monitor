@@ -13,7 +13,7 @@ This is a _just for fun_ project.
 - Recursive watch of a configurable input folder.
 - Parallel processing with configurable worker count (default: CPU count).
 - Audio-first pipeline (mp3/flac targeted, other supported beets formats accepted).
-- Non-audio files are logged as errors and skipped.
+- Non-audio files are logged at debug level and skipped.
 - Metadata write pipeline based on beets libraries (no standalone beets instance required).
 - Metadata enrichment from Lidarr includes album art and fallback release year when tags are missing.
 - Cover-art downloads are restricted to the configured Lidarr host (same scheme/host/port).
@@ -26,6 +26,18 @@ This is a _just for fun_ project.
 - Retry with exponential backoff (cap 30s); non-retryable failures and exhausted retries move files to `failed/`.
 - File moves use copy-then-verify semantics and refuse destination overwrite/path escape.
 - `failed/` is excluded from monitoring.
+- Dry-run mode (`--dry-run`) logs intended operations without writing metadata or moving files.
+- Graceful shutdown support for `SIGINT`/`SIGTERM`.
+
+## Architecture
+
+```text
+watchfiles -> album_queue -> worker pool -> ProcessingService
+    |                                         |
+seed existing folders                read metadata -> Lidarr lookup
+                                              |
+                              write metadata -> build path -> copy+verify -> cleanup
+```
 
 ## Requirements
 
@@ -70,6 +82,7 @@ Use `config.toml.example` as a template.
 - `MUSIC_MONITOR_OUTPUT_PATH`
 - `MUSIC_MONITOR_FAILED_SUBDIR`
 - `MUSIC_MONITOR_WORKERS`
+- `MUSIC_MONITOR_DRY_RUN`
 - `LIDARR_BASE_URL`
 - `LIDARR_API_KEY`
 - `LIDARR_TIMEOUT`
@@ -170,6 +183,9 @@ services:
 - `make dev` — install runtime + dev dependencies.
 - `make run` — run monitor.
 - `make check` — compile-check source.
+- `make lint` — run ruff lint checks.
+- `make format` — run ruff formatter.
+- `make typecheck` — run strict mypy checks.
 - `make test` — run unit tests.
 
 ## Testing

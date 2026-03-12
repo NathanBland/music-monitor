@@ -69,7 +69,6 @@ async def test_run_initializes_naming_and_seeding(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(app.watcher, "watch", fake_watch)
     monkeypatch.setattr(app, "_worker_loop", fake_worker)
 
-    with pytest.raises(asyncio.CancelledError):
-        await app.run()
+    await app.run()
 
     assert seeded["value"] is True

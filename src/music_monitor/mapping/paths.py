@@ -12,6 +12,8 @@ from music_monitor.types import NamingFormats, TrackMetadata
 
 
 INVALID_PATH_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+REPLACED_ILLEGAL_CHARACTERS_PATTERN = re.compile(r"[,&]")
+WHITESPACE_PATTERN = re.compile(r"\s+")
 EMPTY_VALUE = "Unknown"
 
 
@@ -37,9 +39,13 @@ def build_destination_path(output_root: Path, metadata: TrackMetadata, naming: N
         "medium_number": f"{metadata.medium_number:02d}",
     }
 
-    normalized_template = _normalize_lidarr_template(path_template)
-    relative_path = normalized_template.format(**template_values)
-    return output_root / relative_path
+    normalized_artist_folder_template = _normalize_lidarr_template(naming_formats.artist_folder_format)
+    artist_folder = normalized_artist_folder_template.format(**template_values)
+
+    normalized_track_template = _normalize_lidarr_template(path_template)
+    track_relative_path = normalized_track_template.format(**template_values)
+
+    return output_root / artist_folder / track_relative_path
 
 
 def _normalize_lidarr_template(template: str) -> str:
@@ -64,8 +70,10 @@ def _clean_value(value: str) -> str:
     """Trim and sanitize a metadata value for safe use in file paths."""
     trimmed = value.strip()
     sanitized = INVALID_PATH_CHARS_PATTERN.sub("_", trimmed)
+    sanitized = REPLACED_ILLEGAL_CHARACTERS_PATTERN.sub(" ", sanitized)
     while ".." in sanitized:
         sanitized = sanitized.replace("..", "_")
+    sanitized = WHITESPACE_PATTERN.sub(" ", sanitized).strip()
     if sanitized:
         return sanitized
     return EMPTY_VALUE

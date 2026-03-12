@@ -1,6 +1,7 @@
 services:
   music-monitor:
     image: ghcr.io/nathanbland/music-monitor:v0.1.0
+    user: "1000:1000"
     container_name: music-monitor
     restart: unless-stopped
     volumes:

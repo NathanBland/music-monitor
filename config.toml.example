@@ -3,6 +3,9 @@ output_path = "/data/output"
 failed_subdir = "failed"
 workers = 4
 
+# Container images run as appuser (uid/gid 1000:1000).
+# Ensure mounted storage for watch/output/log files is writable by 1000:1000.
+
 [lidarr]
 base_url = "http://lidarr:8686"
 api_key = "set-me"

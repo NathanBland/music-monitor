@@ -110,6 +110,7 @@ A sample is provided at `docker-compose.sample.yml`.
 services:
   music-monitor:
     image: ghcr.io/nathanbland/music-monitor:v0.1.0
+    user: "1000:1000"
     container_name: music-monitor
     restart: unless-stopped
     volumes:
@@ -124,6 +125,12 @@ services:
       MUSIC_MONITOR_WATCH_PATH: "/data/watch"
       MUSIC_MONITOR_OUTPUT_PATH: "/data/output"
     command: ["music-monitor", "--config", "/app/config.toml"]
+```
+
+The container runs as `appuser` (`uid=1000`, `gid=1000`). Ensure mounted paths are writable by `1000:1000` to avoid log/output permission errors.
+
+```bash
+sudo chown -R 1000:1000 ./watch ./output ./logs
 ```
 
 ## Container Image Tags
@@ -153,6 +160,7 @@ In Docker Compose, pin a release tag for predictable deploys:
 services:
   music-monitor:
     image: ghcr.io/nathanbland/music-monitor:v0.1.0
+    user: "1000:1000"
 ```
 
 ## Make Targets

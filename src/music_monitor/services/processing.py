@@ -95,11 +95,11 @@ class ProcessingService:
             destination=base_destination.with_suffix(audio_path.suffix.lower()),
             output_root=self.config.output_path,
         )
-        _raise_if_destination_exists(constrained_destination)
         final_destination = constrained_destination
         final_destination.parent.mkdir(parents=True, exist_ok=True)
 
         _copy_verify_and_remove_source(audio_path, final_destination)
+        _remove_empty_source_parent_directories(audio_path, self.config.watch_path)
         LOGGER.info("file_moved", extra={"source": str(audio_path), "destination": str(final_destination)})
 
     def _move_to_failed(self, source_path: Path) -> None:
@@ -197,22 +197,42 @@ def _constrain_to_output_root(destination: Path, output_root: Path) -> Path:
     return resolved_destination
 
 
-def _raise_if_destination_exists(destination: Path) -> None:
-    """Raise when destination already exists to avoid unintentional overwrite."""
-    if destination.exists():
-        raise FileExistsError("destination already exists")
-
-
 def _copy_verify_and_remove_source(source: Path, destination: Path) -> None:
     """Copy a file, verify byte size integrity, then remove the original source file."""
     source_size_bytes = source.stat().st_size
-    shutil.copy2(str(source), str(destination))
+    destination_created = False
+    try:
+        with source.open("rb") as source_file:
+            with destination.open("xb") as destination_file:
+                destination_created = True
+                shutil.copyfileobj(source_file, destination_file)
 
-    if not destination.exists():
-        raise FileNotFoundError("destination file missing after copy")
+        shutil.copystat(str(source), str(destination))
 
-    destination_size_bytes = destination.stat().st_size
-    if destination_size_bytes != source_size_bytes:
-        raise ValueError("destination file size mismatch after copy")
+        destination_size_bytes = destination.stat().st_size
+        if destination_size_bytes != source_size_bytes:
+            raise ValueError("destination file size mismatch after copy")
+    except Exception:
+        if destination_created:
+            destination.unlink(missing_ok=True)
+        raise
 
     source.unlink()
+
+
+def _remove_empty_source_parent_directories(source: Path, watch_root: Path) -> None:
+    """Remove empty source parent directories up to, but not including, the watch root."""
+    resolved_watch_root = watch_root.resolve()
+    current_parent = source.parent
+
+    try:
+        current_parent.resolve().relative_to(resolved_watch_root)
+    except ValueError:
+        return
+
+    while current_parent != resolved_watch_root:
+        try:
+            current_parent.rmdir()
+        except OSError:
+            return
+        current_parent = current_parent.parent

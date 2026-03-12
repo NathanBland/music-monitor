@@ -22,7 +22,7 @@ def test_build_destination_path_uses_fallback_format() -> None:
 
     destination = build_destination_path(Path("/output"), metadata, None)
 
-    assert str(destination) == "/output/Album (2024)/Artist - Album - 03 - Song"
+    assert str(destination) == "/output/Artist/Album (2024)/Artist - Album - 03 - Song"
 
 
 def test_build_destination_path_uses_multi_disc_template() -> None:
@@ -46,7 +46,7 @@ def test_build_destination_path_uses_multi_disc_template() -> None:
 
     destination = build_destination_path(Path("/library"), metadata, naming_formats)
 
-    assert str(destination) == "/library/Album/CD 02/11 Song"
+    assert str(destination) == "/library/Artist/Album/CD 02/11 Song"
 
 
 def test_build_destination_path_sanitizes_invalid_chars() -> None:
@@ -68,6 +68,29 @@ def test_build_destination_path_sanitizes_invalid_chars() -> None:
     assert "Album_Name" in str(destination)
     assert "Bad_Artist" in str(destination)
     assert "Title_" in str(destination)
+
+
+def test_build_destination_path_replaces_commas_and_ampersands() -> None:
+    metadata = TrackMetadata(
+        source_path=Path("/tmp/source.mp3"),
+        artist_name="Artist, Name & Co",
+        album_title="Album, Name & More",
+        track_title="Song, Pt. 1 & 2",
+        track_number=1,
+        track_total=9,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2020",
+    )
+
+    destination = build_destination_path(Path("/out"), metadata, None)
+
+    assert "," not in str(destination)
+    assert "&" not in str(destination)
+    assert "Artist Name Co" in str(destination)
+    assert "Album Name More" in str(destination)
+    assert "Song Pt. 1 2" in str(destination)
 
 
 def test_build_destination_path_sanitizes_path_traversal_segments() -> None:

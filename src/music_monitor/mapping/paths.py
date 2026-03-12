@@ -11,7 +11,7 @@ from music_monitor.constants import (
 from music_monitor.types import NamingFormats, TrackMetadata
 
 
-INVALID_PATH_CHARS_PATTERN = re.compile(r"[<>:\\|?*\x00-\x1f]")
+INVALID_PATH_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 EMPTY_VALUE = "Unknown"
 
 
@@ -64,6 +64,8 @@ def _clean_value(value: str) -> str:
     """Trim and sanitize a metadata value for safe use in file paths."""
     trimmed = value.strip()
     sanitized = INVALID_PATH_CHARS_PATTERN.sub("_", trimmed)
+    while ".." in sanitized:
+        sanitized = sanitized.replace("..", "_")
     if sanitized:
         return sanitized
     return EMPTY_VALUE

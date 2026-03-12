@@ -15,13 +15,16 @@ This is a _just for fun_ project.
 - Audio-first pipeline (mp3/flac targeted, other supported beets formats accepted).
 - Non-audio files are logged as errors and skipped.
 - Metadata write pipeline based on beets libraries (no standalone beets instance required).
-- Album art enrichment via Lidarr search/cover endpoints when available.
+- Metadata enrichment from Lidarr includes album art and fallback release year when tags are missing.
+- Cover-art downloads are restricted to the configured Lidarr host (same scheme/host/port).
 - Lidarr naming format lookup with fallback templates:
   - Standard track: `{Album Title} ({Release Year})/{Artist Name} - {Album Title} - {track:00} - {Track Title}`
   - Multi-disc: `{Album Title} ({Release Year})/{Medium Format} {medium:00}/{Artist Name} - {Album Title} - {track:00} - {Track Title}`
   - Artist folder: `{Artist Name}`
 - Structured JSON logging to console + rolling file (1 MB max file size).
-- Retry with exponential backoff (cap 30s); after 10 failures files move to `failed/` in the watched directory.
+- Duplicate file events are suppressed using file snapshot tracking.
+- Retry with exponential backoff (cap 30s); non-retryable failures and exhausted retries move files to `failed/`.
+- File moves use copy-then-verify semantics and refuse destination overwrite/path escape.
 - `failed/` is excluded from monitoring.
 
 ## Requirements
@@ -120,7 +123,7 @@ services:
       LOG_LEVEL: "INFO"
       MUSIC_MONITOR_WATCH_PATH: "/data/watch"
       MUSIC_MONITOR_OUTPUT_PATH: "/data/output"
-    command: ["uv", "run", "music-monitor", "--config", "/app/config.toml"]
+    command: ["music-monitor", "--config", "/app/config.toml"]
 ```
 
 ## GitHub Docker Image Workflow

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import SplitResult, urlsplit
 from typing import Any
 
 import httpx
@@ -79,7 +80,13 @@ class LidarrClient:
                 continue
 
             image_url = str(remote_covers[0])
-            image_bytes = await self._download_binary(image_url)
+            if not self._is_allowed_remote_url(image_url):
+                LOGGER.warning("lidarr_art_url_not_allowed", extra={"url": image_url})
+                if release_year:
+                    return AlbumLookupResult(album_art_bytes=None, release_year=release_year)
+                continue
+
+            image_bytes = await self._download_binary(image_url, include_api_key=self._is_lidarr_url(image_url))
             if image_bytes or release_year:
                 return AlbumLookupResult(album_art_bytes=image_bytes, release_year=release_year)
 
@@ -100,9 +107,11 @@ class LidarrClient:
 
         return response.json()
 
-    async def _download_binary(self, url: str) -> bytes | None:
+    async def _download_binary(self, url: str, include_api_key: bool = False) -> bytes | None:
         """Download binary content from a URL using Lidarr credentials."""
-        headers = {"X-Api-Key": self.api_key}
+        headers: dict[str, str] = {}
+        if include_api_key:
+            headers["X-Api-Key"] = self.api_key
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -114,8 +123,26 @@ class LidarrClient:
 
         return response.content
 
+    def _is_allowed_remote_url(self, url: str) -> bool:
+        """Return whether a remote URL is eligible for download."""
+        parsed_url = urlsplit(url)
+        if parsed_url.scheme not in {"http", "https"}:
+            return False
+        return self._is_lidarr_url(url)
+
+    def _is_lidarr_url(self, url: str) -> bool:
+        """Return whether a URL points to the configured Lidarr host and port."""
+        parsed_url = urlsplit(url)
+        parsed_base_url = urlsplit(self.base_url)
+        return (
+            parsed_url.scheme == parsed_base_url.scheme
+            and parsed_url.hostname == parsed_base_url.hostname
+            and _normalized_port(parsed_url) == _normalized_port(parsed_base_url)
+        )
+
 
 def _extract_release_year(result: dict[str, Any]) -> str | None:
+    """Extract a release year from direct year fields or an ISO release date."""
     album_data = result.get("album")
     if not isinstance(album_data, dict):
         album_data = {}
@@ -137,3 +164,12 @@ def _extract_release_year(result: dict[str, Any]) -> str | None:
         return None
 
     return str(parsed_date.year)
+
+
+def _normalized_port(parsed_url: SplitResult) -> int:
+    """Return explicit URL port, or the default port for the parsed scheme."""
+    if parsed_url.port is not None:
+        return parsed_url.port
+    if parsed_url.scheme == "https":
+        return 443
+    return 80

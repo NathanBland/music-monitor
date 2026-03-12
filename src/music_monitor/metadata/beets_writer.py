@@ -146,6 +146,7 @@ def _coalesce(*values: object) -> str:
 
 
 def _optional_string(value: object) -> str | None:
+    """Normalize nullable tag values to a stripped string or `None`."""
     if value is None:
         return None
     text = str(value).strip()

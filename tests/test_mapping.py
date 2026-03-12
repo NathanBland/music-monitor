@@ -65,5 +65,25 @@ def test_build_destination_path_sanitizes_invalid_chars() -> None:
 
     destination = build_destination_path(Path("/out"), metadata, None)
 
+    assert "Album_Name" in str(destination)
     assert "Bad_Artist" in str(destination)
     assert "Title_" in str(destination)
+
+
+def test_build_destination_path_sanitizes_path_traversal_segments() -> None:
+    metadata = TrackMetadata(
+        source_path=Path("/tmp/source.mp3"),
+        artist_name="../Artist",
+        album_title="..",
+        track_title="Track",
+        track_number=1,
+        track_total=1,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2020",
+    )
+
+    destination = build_destination_path(Path("/out"), metadata, None)
+
+    assert ".." not in str(destination)

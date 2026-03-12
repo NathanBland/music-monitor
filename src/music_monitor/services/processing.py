@@ -14,11 +14,12 @@ from music_monitor.config import AppConfig
 from music_monitor.constants import SUPPORTED_AUDIO_EXTENSIONS
 from music_monitor.mapping.paths import build_destination_path
 from music_monitor.metadata.beets_writer import read_track_metadata, write_track_metadata
-from music_monitor.types import AlbumLookupResult, NamingFormats
+from music_monitor.types import AlbumLookupResult, NamingFormats, TrackMetadata
 
 
 LOGGER = logging.getLogger(__name__)
 MAX_PROCESSED_SNAPSHOT_ENTRIES = 2048
+NON_RETRYABLE_PROCESSING_EXCEPTIONS = (FileExistsError, ValueError)
 
 
 @dataclass
@@ -67,6 +68,10 @@ class ProcessingService:
                     extra={"file": str(audio_path), "attempt": attempt, "error": str(error)},
                 )
 
+                if isinstance(error, NON_RETRYABLE_PROCESSING_EXCEPTIONS):
+                    self._move_to_failed(audio_path)
+                    return
+
                 if attempt >= max_attempts:
                     self._move_to_failed(audio_path)
                     return
@@ -86,10 +91,15 @@ class ProcessingService:
             metadata=metadata,
             naming=self.naming_formats,
         )
-        final_destination = ensure_unique_destination(base_destination.with_suffix(audio_path.suffix.lower()))
+        constrained_destination = _constrain_to_output_root(
+            destination=base_destination.with_suffix(audio_path.suffix.lower()),
+            output_root=self.config.output_path,
+        )
+        _raise_if_destination_exists(constrained_destination)
+        final_destination = constrained_destination
         final_destination.parent.mkdir(parents=True, exist_ok=True)
 
-        shutil.move(str(audio_path), str(final_destination))
+        _copy_verify_and_remove_source(audio_path, final_destination)
         LOGGER.info("file_moved", extra={"source": str(audio_path), "destination": str(final_destination)})
 
     def _move_to_failed(self, source_path: Path) -> None:
@@ -105,12 +115,14 @@ class ProcessingService:
         )
 
     def _is_recently_processed(self, audio_path: Path, snapshot: tuple[int, int]) -> bool:
+        """Return whether the current file snapshot matches the last processed snapshot."""
         existing_snapshot = self.processed_snapshots.get(audio_path)
         if existing_snapshot is None:
             return False
         return existing_snapshot == snapshot
 
     def _mark_processed(self, audio_path: Path, snapshot: tuple[int, int]) -> None:
+        """Record a processed file snapshot and evict the oldest entry when full."""
         if len(self.processed_snapshots) >= MAX_PROCESSED_SNAPSHOT_ENTRIES:
             oldest_path = next(iter(self.processed_snapshots))
             self.processed_snapshots.pop(oldest_path, None)
@@ -154,6 +166,7 @@ def ensure_unique_destination(destination: Path) -> Path:
 
 
 def _build_file_snapshot(path: Path) -> tuple[int, int] | None:
+    """Build a `(size, mtime_ns)` snapshot tuple for duplicate-event detection."""
     try:
         stat_result = path.stat()
     except FileNotFoundError:
@@ -162,7 +175,44 @@ def _build_file_snapshot(path: Path) -> tuple[int, int] | None:
     return (stat_result.st_size, stat_result.st_mtime_ns)
 
 
-def _apply_lookup_result_to_metadata(metadata, lookup_result: AlbumLookupResult):
+def _apply_lookup_result_to_metadata(
+    metadata: TrackMetadata, lookup_result: AlbumLookupResult
+) -> TrackMetadata:
+    """Apply selected lookup fields to metadata when local values are missing."""
     if metadata.release_year == "Unknown" and lookup_result.release_year:
         metadata.release_year = lookup_result.release_year
     return metadata
+
+
+def _constrain_to_output_root(destination: Path, output_root: Path) -> Path:
+    """Resolve and validate that destination remains inside the configured output root."""
+    resolved_output_root = output_root.resolve()
+    resolved_destination = destination.resolve()
+
+    try:
+        resolved_destination.relative_to(resolved_output_root)
+    except ValueError as error:
+        raise ValueError("resolved destination escapes configured output root") from error
+
+    return resolved_destination
+
+
+def _raise_if_destination_exists(destination: Path) -> None:
+    """Raise when destination already exists to avoid unintentional overwrite."""
+    if destination.exists():
+        raise FileExistsError("destination already exists")
+
+
+def _copy_verify_and_remove_source(source: Path, destination: Path) -> None:
+    """Copy a file, verify byte size integrity, then remove the original source file."""
+    source_size_bytes = source.stat().st_size
+    shutil.copy2(str(source), str(destination))
+
+    if not destination.exists():
+        raise FileNotFoundError("destination file missing after copy")
+
+    destination_size_bytes = destination.stat().st_size
+    if destination_size_bytes != source_size_bytes:
+        raise ValueError("destination file size mismatch after copy")
+
+    source.unlink()

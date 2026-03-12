@@ -6,17 +6,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh
-
-ENV PATH="/root/.local/bin:${PATH}"
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-RUN uv sync --no-dev
+RUN pip install --no-cache-dir .
 
 COPY config.toml.example ./config.toml.example
 
-CMD ["uv", "run", "music-monitor"]
+RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+CMD ["music-monitor"]

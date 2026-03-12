@@ -14,4 +14,4 @@ services:
       LOG_LEVEL: "INFO"
       MUSIC_MONITOR_WATCH_PATH: "/data/watch"
       MUSIC_MONITOR_OUTPUT_PATH: "/data/output"
-    command: ["uv", "run", "music-monitor", "--config", "/app/config.toml"]
+    command: ["music-monitor", "--config", "/app/config.toml"]

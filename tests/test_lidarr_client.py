@@ -41,10 +41,11 @@ async def test_fetch_album_art_uses_first_cover(monkeypatch) -> None:
     async def fake_get(endpoint: str, params=None):
         assert endpoint == "/api/v1/search"
         assert params == {"term": "Artist Album"}
-        return [{"albumTitle": "Album", "remoteCovers": ["http://img"]}]
+        return [{"albumTitle": "Album", "remoteCovers": ["http://lidarr/image.jpg"]}]
 
-    async def fake_download(url: str):
-        assert url == "http://img"
+    async def fake_download(url: str, include_api_key: bool = False):
+        assert url == "http://lidarr/image.jpg"
+        assert include_api_key is True
         return b"img"
 
     monkeypatch.setattr(client, "_get", fake_get)
@@ -64,12 +65,13 @@ async def test_fetch_album_lookup_extracts_release_year(monkeypatch) -> None:
         return [
             {
                 "albumTitle": "Album",
-                "remoteCovers": ["http://img"],
+                "remoteCovers": ["http://lidarr/cover.jpg"],
                 "releaseDate": "2011-02-03T00:00:00Z",
             }
         ]
 
-    async def fake_download(_url: str):
+    async def fake_download(_url: str, include_api_key: bool = False):
+        assert include_api_key is True
         return b"img"
 
     monkeypatch.setattr(client, "_get", fake_get)
@@ -111,3 +113,33 @@ async def test_fetch_album_lookup_reads_nested_album_release_date(monkeypatch) -
 
     assert lookup.album_art_bytes is None
     assert lookup.release_year == "2007"
+
+
+@pytest.mark.asyncio
+async def test_fetch_album_lookup_skips_non_lidarr_remote_cover(monkeypatch) -> None:
+    client = LidarrClient(base_url="http://lidarr:8686", api_key="key")
+
+    async def fake_get(endpoint: str, params=None):
+        assert endpoint == "/api/v1/search"
+        return [{"albumTitle": "Album", "remoteCovers": ["http://example.com/cover.jpg"], "year": 2019}]
+
+    async def fake_download(_url: str, include_api_key: bool = False):
+        raise AssertionError("unexpected download call")
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    monkeypatch.setattr(client, "_download_binary", fake_download)
+
+    lookup = await client.fetch_album_lookup("Artist", "Album")
+
+    assert lookup.album_art_bytes is None
+    assert lookup.release_year == "2019"
+
+
+def test_is_allowed_remote_url_allows_only_same_host_and_port() -> None:
+    client = LidarrClient(base_url="https://lidarr.local:8686", api_key="key")
+
+    assert client._is_allowed_remote_url("https://lidarr.local:8686/path.jpg") is True
+    assert client._is_allowed_remote_url("https://lidarr.local/path.jpg") is False
+    assert client._is_allowed_remote_url("http://lidarr.local:8686/path.jpg") is False
+    assert client._is_allowed_remote_url("https://example.com/path.jpg") is False
+    assert client._is_allowed_remote_url("file:///tmp/x.jpg") is False

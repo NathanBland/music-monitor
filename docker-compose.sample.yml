@@ -1,6 +1,6 @@
 services:
   music-monitor:
-    image: ghcr.io/your-org/music-monitor:latest
+    image: ghcr.io/nathanbland/music-monitor:v0.1.0
     container_name: music-monitor
     restart: unless-stopped
     volumes:

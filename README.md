@@ -109,7 +109,7 @@ A sample is provided at `docker-compose.sample.yml`.
 ```yaml
 services:
   music-monitor:
-    image: ghcr.io/your-org/music-monitor:latest
+    image: ghcr.io/nathanbland/music-monitor:v0.1.0
     container_name: music-monitor
     restart: unless-stopped
     volumes:
@@ -126,13 +126,34 @@ services:
     command: ["music-monitor", "--config", "/app/config.toml"]
 ```
 
-## GitHub Docker Image Workflow
+## Container Image Tags
 
 A GitHub Actions workflow is included at `.github/workflows/docker-image.yml`.
 
 - Builds on pushes/PRs/workflow dispatch.
 - Pushes to `ghcr.io/<owner>/<repo>` on non-PR events.
 - Applies branch/tag/SHA metadata tags.
+- Publishes `latest` for the default branch.
+
+### Consume image tags
+
+```bash
+docker pull ghcr.io/nathanbland/music-monitor:v0.1.0
+```
+
+For rolling deployments, use:
+
+```bash
+docker pull ghcr.io/nathanbland/music-monitor:latest
+```
+
+In Docker Compose, pin a release tag for predictable deploys:
+
+```yaml
+services:
+  music-monitor:
+    image: ghcr.io/nathanbland/music-monitor:v0.1.0
+```
 
 ## Make Targets
 

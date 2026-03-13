@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from music_monitor.clients.lidarr import LidarrClient
-from music_monitor.config import AppConfig, BackoffConfig
+from music_monitor.config import AppConfig, BackoffConfig, IngestConfig
 from music_monitor.services.processing import ProcessingService, discover_audio_files, ensure_unique_destination
 from music_monitor.types import AlbumLookupResult, NamingFormats, TrackMetadata
 
@@ -207,10 +207,90 @@ async def test_process_single_file_writes_metadata_and_moves(monkeypatch, tmp_pa
     expected = config.output_path / "Artist/Album (2024)/Artist - Album - 01 - Track.mp3"
     assert expected.exists()
     assert not source.exists()
-    assert not album_art.exists()
-    assert not source_parent.exists()
+    assert album_art.exists()
+    assert source_parent.exists()
     assert watch_path.exists()
     assert writes["art"] == b"img"
+    assert (expected.parent / "cover.jpg").exists()
+
+
+@pytest.mark.asyncio
+async def test_process_album_directory_removes_source_after_terminal_outcomes(monkeypatch, tmp_path: Path) -> None:
+    watch_path = tmp_path / "watch"
+    album_directory = watch_path / "Artist" / "Album"
+    album_directory.mkdir(parents=True)
+    first_track = album_directory / "01 - Track.mp3"
+    second_track = album_directory / "02 - Track.mp3"
+    sidecar_file = album_directory / "Folder.jpg"
+    first_track.write_bytes(b"a")
+    second_track.write_bytes(b"b")
+    sidecar_file.write_bytes(b"img")
+
+    config = AppConfig(
+        watch_path=watch_path,
+        output_path=tmp_path / "library",
+        ingest=IngestConfig(settle_enabled=False),
+    )
+    client = LidarrClient(base_url="", api_key="")
+    service = ProcessingService(config=config, lidarr_client=client)
+
+    outcomes = iter(["processed", "processed"])
+
+    async def fake_process_with_retry(audio_path: Path) -> str:
+        audio_path.unlink()
+        return next(outcomes)
+
+    monkeypatch.setattr("music_monitor.services.processing.mediafile.MediaFile", lambda _path: object())
+    monkeypatch.setattr(service, "_process_with_retry", fake_process_with_retry)
+
+    await service.process_album_directory(album_directory)
+
+    assert not album_directory.exists()
+    assert watch_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_process_with_retry_moves_cross_format_duplicates_to_failed(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "track.mp3"
+    source.write_bytes(b"x")
+
+    config = AppConfig(
+        watch_path=tmp_path,
+        output_path=tmp_path / "library",
+        backoff=BackoffConfig(initial_seconds=0.0, max_seconds=0.0, attempts=1),
+    )
+    client = LidarrClient(base_url="", api_key="")
+    service = ProcessingService(config=config, lidarr_client=client)
+
+    metadata = TrackMetadata(
+        source_path=source,
+        artist_name="Artist",
+        album_title="Album",
+        track_title="Track",
+        track_number=1,
+        track_total=12,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2024",
+    )
+
+    conflicting_destination = config.output_path / "Artist/Album (2024)/Artist - Album - 01 - Track.flac"
+    conflicting_destination.parent.mkdir(parents=True, exist_ok=True)
+    conflicting_destination.write_bytes(b"existing")
+
+    async def fake_lookup(_artist: str, _album: str):
+        return AlbumLookupResult(album_art_bytes=None, release_year=None)
+
+    monkeypatch.setattr(client, "fetch_album_lookup", fake_lookup)
+    monkeypatch.setattr("music_monitor.services.processing.read_track_metadata", lambda _p: metadata)
+    monkeypatch.setattr("music_monitor.services.processing.write_track_metadata", lambda *_args, **_kwargs: None)
+
+    await service._process_with_retry(source)
+
+    failed_destination = tmp_path / "failed" / "track.mp3"
+    assert failed_destination.exists()
+    assert conflicting_destination.read_bytes() == b"existing"
 
 
 @pytest.mark.asyncio
@@ -489,3 +569,163 @@ def test_ensure_unique_destination_appends_suffix(tmp_path: Path) -> None:
     resolved = ensure_unique_destination(destination)
 
     assert resolved.name == "song (1).mp3"
+
+
+@pytest.mark.asyncio
+async def test_wait_for_album_files_to_settle_returns_true_when_disabled(tmp_path: Path) -> None:
+    source = tmp_path / "track.mp3"
+    source.write_bytes(b"x")
+    service = ProcessingService(
+        config=AppConfig(
+            watch_path=tmp_path,
+            output_path=tmp_path / "out",
+            ingest=IngestConfig(settle_enabled=False),
+        ),
+        lidarr_client=LidarrClient(base_url="", api_key=""),
+    )
+
+    is_settled = await service._wait_for_album_files_to_settle([source], tmp_path)
+
+    assert is_settled is True
+
+
+@pytest.mark.asyncio
+async def test_wait_for_album_files_to_settle_returns_true_when_snapshot_stabilizes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "track.mp3"
+    source.write_bytes(b"x")
+    service = ProcessingService(
+        config=AppConfig(
+            watch_path=tmp_path,
+            output_path=tmp_path / "out",
+            ingest=IngestConfig(
+                settle_enabled=True,
+                poll_interval_seconds=0.01,
+                stable_polls_required=2,
+                max_wait_seconds=0.03,
+            ),
+        ),
+        lidarr_client=LidarrClient(base_url="", api_key=""),
+    )
+
+    monkeypatch.setattr("music_monitor.services.processing._build_file_snapshot", lambda _path: (10, 100))
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("music_monitor.services.processing.asyncio.sleep", fake_sleep)
+
+    is_settled = await service._wait_for_album_files_to_settle([source], tmp_path)
+
+    assert is_settled is True
+    assert sleep_calls == [0.01]
+
+
+@pytest.mark.asyncio
+async def test_wait_for_album_files_to_settle_times_out_for_changing_snapshot(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "track.mp3"
+    source.write_bytes(b"x")
+    service = ProcessingService(
+        config=AppConfig(
+            watch_path=tmp_path,
+            output_path=tmp_path / "out",
+            ingest=IngestConfig(
+                settle_enabled=True,
+                poll_interval_seconds=0.01,
+                stable_polls_required=3,
+                max_wait_seconds=0.03,
+            ),
+        ),
+        lidarr_client=LidarrClient(base_url="", api_key=""),
+    )
+
+    snapshots = iter([(10, 100), (11, 101), (12, 102), (13, 103), (14, 104)])
+
+    def fake_snapshot(_path: Path) -> tuple[int, int]:
+        return next(snapshots)
+
+    monkeypatch.setattr("music_monitor.services.processing._build_file_snapshot", fake_snapshot)
+
+    async def fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr("music_monitor.services.processing.asyncio.sleep", fake_sleep)
+
+    is_settled = await service._wait_for_album_files_to_settle([source], tmp_path)
+
+    assert is_settled is False
+
+
+@pytest.mark.asyncio
+async def test_process_album_directory_skips_processing_when_files_not_settled(monkeypatch, tmp_path: Path) -> None:
+    album_directory = tmp_path / "Artist" / "Album"
+    album_directory.mkdir(parents=True)
+    source = album_directory / "track.mp3"
+    source.write_bytes(b"x")
+
+    service = ProcessingService(
+        config=AppConfig(watch_path=tmp_path, output_path=tmp_path / "out"),
+        lidarr_client=LidarrClient(base_url="", api_key=""),
+    )
+
+    monkeypatch.setattr("music_monitor.services.processing.mediafile.MediaFile", lambda _path: object())
+
+    async def fake_wait(_audio_files: list[Path], _album_directory: Path) -> bool:
+        return False
+
+    calls = {"count": 0}
+
+    async def fake_process(_path: Path) -> str:
+        calls["count"] += 1
+        return "processed"
+
+    monkeypatch.setattr(service, "_wait_for_album_files_to_settle", fake_wait)
+    monkeypatch.setattr(service, "_process_with_retry", fake_process)
+
+    await service.process_album_directory(album_directory)
+
+    assert calls["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_process_with_retry_moves_to_failed_when_artist_identity_unresolved(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "unknown-artist.flac"
+    source.write_bytes(b"x")
+
+    config = AppConfig(
+        watch_path=tmp_path,
+        output_path=tmp_path / "library",
+        backoff=BackoffConfig(initial_seconds=0.0, max_seconds=0.0, attempts=1),
+    )
+    client = LidarrClient(base_url="", api_key="")
+    service = ProcessingService(config=config, lidarr_client=client)
+
+    unresolved_artist_metadata = TrackMetadata(
+        source_path=source,
+        artist_name=" ",
+        album_title="Album",
+        track_title="Track",
+        track_number=1,
+        track_total=1,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2024",
+    )
+
+    async def fake_lookup(_artist: str, _album: str):
+        return AlbumLookupResult(album_art_bytes=None, release_year=None)
+
+    monkeypatch.setattr(client, "fetch_album_lookup", fake_lookup)
+    monkeypatch.setattr("music_monitor.services.processing.read_track_metadata", lambda _p: unresolved_artist_metadata)
+    monkeypatch.setattr("music_monitor.services.processing.write_track_metadata", lambda *_args, **_kwargs: None)
+
+    outcome = await service._process_with_retry(source)
+
+    failed_destination = tmp_path / "failed" / "unknown-artist.flac"
+    assert outcome == "failed"
+    assert failed_destination.exists()
+    assert not (config.output_path / "Unknown").exists()

@@ -33,4 +33,4 @@ typecheck:
 	uv run mypy src
 
 test:
-	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -q -p pytest_asyncio.plugin -p pytest_cov --cov=music_monitor --cov-report=term-missing
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest

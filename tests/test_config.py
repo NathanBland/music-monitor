@@ -14,6 +14,10 @@ def test_load_config_defaults_when_file_missing(tmp_path: Path) -> None:
     assert config.output_path == (Path("./output").resolve())
     assert config.backoff.max_seconds == 30.0
     assert config.backoff.attempts == 10
+    assert config.ingest.settle_enabled is True
+    assert config.ingest.poll_interval_seconds == 2.0
+    assert config.ingest.stable_polls_required == 3
+    assert config.ingest.max_wait_seconds == 300.0
 
 
 def test_load_config_from_toml_and_env_override(tmp_path: Path, monkeypatch) -> None:
@@ -37,6 +41,12 @@ def test_load_config_from_toml_and_env_override(tmp_path: Path, monkeypatch) -> 
                 "initial_seconds = 2.0",
                 "max_seconds = 20.0",
                 "attempts = 4",
+                "",
+                "[ingest]",
+                "settle_enabled = false",
+                "poll_interval_seconds = 0.5",
+                "stable_polls_required = 2",
+                "max_wait_seconds = 90.0",
             ]
         )
     )
@@ -44,6 +54,8 @@ def test_load_config_from_toml_and_env_override(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setenv("LIDARR_API_KEY", "env-key")
     monkeypatch.setenv("MUSIC_MONITOR_WORKERS", "0")
     monkeypatch.setenv("BACKOFF_ATTEMPTS", "0")
+    monkeypatch.setenv("INGEST_SETTLE_ENABLED", "true")
+    monkeypatch.setenv("INGEST_STABLE_POLLS_REQUIRED", "0")
 
     config = load_config(config_path)
 
@@ -51,6 +63,10 @@ def test_load_config_from_toml_and_env_override(tmp_path: Path, monkeypatch) -> 
     assert config.workers == 1
     assert config.backoff.attempts == 1
     assert config.backoff.max_seconds == 20.0
+    assert config.ingest.settle_enabled is True
+    assert config.ingest.poll_interval_seconds == 0.5
+    assert config.ingest.stable_polls_required == 1
+    assert config.ingest.max_wait_seconds == 90.0
 
 
 def test_load_config_rejects_overlapping_watch_and_output_paths(tmp_path: Path) -> None:

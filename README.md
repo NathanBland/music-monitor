@@ -1,6 +1,6 @@
 # music-monitor
 
-`music-monitor` is a uv-based Python service that recursively watches a folder for music files, writes metadata using beets libraries, applies Lidarr naming mappings (v3.1 API) when available, and moves processed files into an organized output library.
+`music-monitor` is a uv-based Python service that recursively watches a folder for music files, enriches and writes metadata using beets libraries, applies Lidarr naming mappings (v3.1 API) when available, and moves processed files into an organized output library.
 
 ## Disclaimer
 
@@ -15,16 +15,22 @@ This is a _just for fun_ project.
 - Audio-first pipeline (mp3/flac targeted, other supported beets formats accepted).
 - Non-audio files are logged at debug level and skipped.
 - Metadata write pipeline based on beets libraries (no standalone beets instance required).
-- Metadata enrichment from Lidarr includes album art and fallback release year when tags are missing.
-- Cover-art downloads are restricted to the configured Lidarr host (same scheme/host/port).
+- Metadata enrichment prioritizes MusicBrainz (MB IDs first, then search), with Lidarr fallback for missing values.
+- Cover art resolution prefers Cover Art Archive (by MusicBrainz release ID), then falls back to Lidarr.
+- Embedded cover art is written into files when available, and `cover.jpg` is written beside destination tracks.
 - Lidarr naming format lookup with fallback templates:
   - Standard track: `{Album Title} ({Release Year})/{Artist Name} - {Album Title} - {track:00} - {Track Title}`
   - Multi-disc: `{Album Title} ({Release Year})/{Medium Format} {medium:00}/{Artist Name} - {Album Title} - {track:00} - {Track Title}`
   - Artist folder: `{Artist Name}`
 - Structured JSON logging to console + rolling file (1 MB max file size).
 - Duplicate file events are suppressed using file snapshot tracking.
+- Destination cross-format duplicate moves are blocked (same filename stem, different extension) and sent to `failed/`.
+- Ingest settle guard waits for stable file size/mtime before processing to reduce partial-upload corruption risk.
+- Destination paths enforce an artist-first root; album-only top-level templates are overridden to the resolved artist name.
+- Files with unresolved artist identity fail as non-retryable and are moved to `failed/`.
 - Retry with exponential backoff (cap 30s); non-retryable failures and exhausted retries move files to `failed/`.
 - File moves use copy-then-verify semantics and refuse destination overwrite/path escape.
+- Album folder cleanup is deferred until all files in that folder have reached a terminal outcome (`processed`, `skipped`, or `failed`).
 - `failed/` is excluded from monitoring.
 - Dry-run mode (`--dry-run`) logs intended operations without writing metadata or moving files.
 - Graceful shutdown support for `SIGINT`/`SIGTERM`.
@@ -34,9 +40,9 @@ This is a _just for fun_ project.
 ```text
 watchfiles -> album_queue -> worker pool -> ProcessingService
     |                                         |
-seed existing folders                read metadata -> Lidarr lookup
+seed existing folders     read metadata -> MusicBrainz -> Lidarr fallback
                                               |
-                              write metadata -> build path -> copy+verify -> cleanup
+                    resolve art (CAA -> Lidarr) -> write tags/art -> move -> folder cleanup
 ```
 
 ## Requirements
@@ -44,7 +50,8 @@ seed existing folders                read metadata -> Lidarr lookup
 - Linux (Docker-focused).
 - Python 3.12+ for local development.
 - `uv` package manager.
-- A Lidarr instance (optional but recommended for mapping and cover art).
+- MusicBrainz API access (no key required, valid user-agent required).
+- A Lidarr instance (optional but recommended for naming templates and metadata fallback).
 
 ## Quick Start (Local)
 
@@ -54,7 +61,7 @@ seed existing folders                read metadata -> Lidarr lookup
 cp config.toml.example config.toml
 ```
 
-2. Edit `config.toml` values (watch/output paths, Lidarr URL/API key).
+2. Edit `config.toml` values (watch/output paths, MusicBrainz user-agent, Lidarr URL/API key).
 
 3. Install dependencies:
 
@@ -86,6 +93,12 @@ Use `config.toml.example` as a template.
 - `LIDARR_BASE_URL`
 - `LIDARR_API_KEY`
 - `LIDARR_TIMEOUT`
+- `MUSICBRAINZ_USER_AGENT` (required for MusicBrainz lookups)
+- `MUSICBRAINZ_RATE_LIMIT_MS` (default `1000`)
+- `INGEST_SETTLE_ENABLED` (default `true`)
+- `INGEST_POLL_INTERVAL_SECONDS` (default `2.0`)
+- `INGEST_STABLE_POLLS_REQUIRED` (default `3`)
+- `INGEST_MAX_WAIT_SECONDS` (default `300.0`)
 - `LOG_LEVEL` (`INFO` default; set `DEBUG` for verbose logs)
 - `LOG_FILE`
 - `LOG_MAX_BYTES` (default `1000000`)
@@ -186,7 +199,7 @@ services:
 - `make lint` — run ruff lint checks.
 - `make format` — run ruff formatter.
 - `make typecheck` — run strict mypy checks.
-- `make test` — run unit tests.
+- `make test` — run unit tests with coverage (`>=85%` required).
 
 ## Testing
 
@@ -196,7 +209,8 @@ The test suite focuses on unit-level behavior for:
 - Lidarr client behavior via mocked HTTP calls
 - path mapping and naming fallback logic
 - watcher seeding and failed-path exclusion
-- processing retries, backoff, and failed-folder handling
+- processing retries, backoff, failed-folder handling, and folder-level progress/cleanup behavior
+- ingest settle guard behavior for partially uploaded files
 - app-level queue reservation and worker orchestration
 
 Run tests with:
@@ -208,8 +222,13 @@ make test
 Equivalent command:
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -q -p pytest_asyncio.plugin
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -q -p pytest_asyncio.plugin -p pytest_cov --cov=music_monitor --cov-report=term-missing --cov-report=xml --cov-fail-under=85
 ```
+
+Coverage policy:
+
+- Total test coverage must stay at or above `85%`.
+- The test run writes a machine-readable report to `coverage.xml` for CI.
 
 ## Notes
 

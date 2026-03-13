@@ -37,9 +37,15 @@ def build_destination_path(output_root: Path, metadata: TrackMetadata, naming: N
         "medium_format": _clean_value(metadata.medium_format),
         "medium_number": f"{metadata.medium_number:02d}",
     }
+    _validate_artist_identity(template_values["artist_name"])
 
     normalized_artist_folder_template = _normalize_lidarr_template(naming_formats.artist_folder_format)
-    artist_folder = normalized_artist_folder_template.format(**template_values)
+    rendered_artist_folder = normalized_artist_folder_template.format(**template_values)
+    artist_folder = _resolve_top_level_artist_folder(
+        rendered_artist_folder=rendered_artist_folder,
+        artist_name=template_values["artist_name"],
+        album_title=template_values["album_title"],
+    )
 
     normalized_track_template = _normalize_lidarr_template(path_template)
     track_relative_path = normalized_track_template.format(**template_values)
@@ -76,3 +82,17 @@ def _clean_value(value: str) -> str:
     if sanitized:
         return sanitized
     return EMPTY_VALUE
+
+
+def _resolve_top_level_artist_folder(rendered_artist_folder: str, artist_name: str, album_title: str) -> str:
+    """Resolve the top-level folder, preventing album-only folders from replacing artist roots."""
+    sanitized_artist_folder = _clean_value(rendered_artist_folder)
+    if sanitized_artist_folder.lower() == album_title.lower():
+        return artist_name
+    return sanitized_artist_folder
+
+
+def _validate_artist_identity(artist_name: str) -> None:
+    """Raise when artist identity is unavailable and a deterministic artist folder cannot be built."""
+    if artist_name.lower() == EMPTY_VALUE.lower():
+        raise ValueError("artist identity unresolved")

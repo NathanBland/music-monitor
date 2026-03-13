@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from typing import Any, Callable
 
-import musicbrainzngs
+import musicbrainzngs  # type: ignore[import-untyped]
 
 from music_monitor.types import MusicBrainzLookupResult, TrackMetadata
 
@@ -95,12 +96,15 @@ class MusicBrainzClient:
         return _build_lookup_result(release_data, recording_data=None, recording_id=None)
 
     async def _search_release(self, artist_name: str, album_title: str) -> dict[str, object] | None:
-        return await self._run_request(
+        response = await self._run_request(
             musicbrainzngs.search_releases,
             artist=artist_name,
             release=album_title,
             limit=1,
         )
+        if not isinstance(response, dict):
+            return None
+        return response
 
     async def _get_release_by_id(self, release_id: str) -> dict[str, object] | None:
         response = await self._run_request(
@@ -130,7 +134,12 @@ class MusicBrainzClient:
             return None
         return recording_data
 
-    async def _run_request(self, function, *args, **kwargs):
+    async def _run_request(
+        self,
+        function: Callable[..., object],
+        *args: object,
+        **kwargs: object,
+    ) -> object | None:
         try:
             await self._respect_rate_limit()
             return await asyncio.to_thread(function, *args, **kwargs)

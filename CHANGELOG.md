@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-03-13
+
 ### Added
 - Added MusicBrainz-first metadata enrichment with MB ID lookups and search fallback.
 - Added Cover Art Archive client support with Lidarr artwork fallback.

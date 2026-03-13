@@ -76,6 +76,18 @@ def write_track_metadata(path: Path, metadata: TrackMetadata, album_art_bytes: b
     media.save()
 
 
+def save_cover_art_sidecar(directory: Path, album_art_bytes: bytes | None) -> None:
+    """Persist cover art as `cover.jpg` beside tracks when art bytes are available."""
+    if not album_art_bytes:
+        return
+
+    cover_path = directory / "cover.jpg"
+    if cover_path.exists():
+        return
+
+    cover_path.write_bytes(album_art_bytes)
+
+
 def _write_artwork(target_media: mediafile.MediaFile, album_art_bytes: bytes) -> None:
     """Attach cover art to a media object when the current beets API supports it."""
     image_class = getattr(mediafile, "Image", None)

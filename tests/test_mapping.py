@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from music_monitor.mapping.paths import build_destination_path
 from music_monitor.types import NamingFormats, TrackMetadata
 
@@ -47,6 +49,37 @@ def test_build_destination_path_uses_multi_disc_template() -> None:
     destination = build_destination_path(Path("/library"), metadata, naming_formats)
 
     assert str(destination) == "/library/Artist/Album/CD 02/11 Song"
+
+
+def test_build_destination_path_overrides_album_only_artist_folder_template() -> None:
+    metadata = TrackMetadata(
+        source_path=Path("/tmp/source.flac"),
+        artist_name="Sleep Token",
+        album_title="Take Me Back To Eden",
+        track_title="The Summoning",
+        track_number=2,
+        track_total=12,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2023",
+    )
+    naming_formats = NamingFormats(
+        artist_folder_format="{Album Title}",
+        standard_track_format=(
+            "{Album Title} ({Release Year})/{Artist Name} - {Album Title} - {track:00} - {Track Title}"
+        ),
+        multi_disc_track_format=(
+            "{Album Title} ({Release Year})/{Medium Format} {medium:00}/"
+            "{Artist Name} - {Album Title} - {track:00} - {Track Title}"
+        ),
+    )
+
+    destination = build_destination_path(Path("/library"), metadata, naming_formats)
+
+    assert str(destination) == (
+        "/library/Sleep Token/Take Me Back To Eden (2023)/Sleep Token - Take Me Back To Eden - 02 - The Summoning"
+    )
 
 
 def test_build_destination_path_sanitizes_invalid_chars() -> None:
@@ -110,3 +143,21 @@ def test_build_destination_path_sanitizes_path_traversal_segments() -> None:
     destination = build_destination_path(Path("/out"), metadata, None)
 
     assert ".." not in str(destination)
+
+
+def test_build_destination_path_raises_when_artist_identity_unresolved() -> None:
+    metadata = TrackMetadata(
+        source_path=Path("/tmp/source.mp3"),
+        artist_name=" ",
+        album_title="Album",
+        track_title="Track",
+        track_number=1,
+        track_total=1,
+        medium_number=1,
+        medium_total=1,
+        medium_format="Disc",
+        release_year="2020",
+    )
+
+    with pytest.raises(ValueError, match="artist identity unresolved"):
+        build_destination_path(Path("/out"), metadata, None)

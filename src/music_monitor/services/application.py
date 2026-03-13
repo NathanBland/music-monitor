@@ -5,7 +5,9 @@ import logging
 import signal
 from pathlib import Path
 
+from music_monitor.clients.coverart import CoverArtArchiveClient
 from music_monitor.clients.lidarr import LidarrClient
+from music_monitor.clients.musicbrainz import MusicBrainzClient
 from music_monitor.config import AppConfig
 from music_monitor.services.processing import ProcessingService
 from music_monitor.services.watching import DirectoryWatcher
@@ -29,7 +31,17 @@ class MusicMonitorApp:
             api_key=config.lidarr.api_key,
             timeout_seconds=config.lidarr.timeout_seconds,
         )
-        self.processing_service = ProcessingService(config=config, lidarr_client=self.lidarr_client)
+        self.musicbrainz_client = MusicBrainzClient(
+            user_agent=config.musicbrainz.user_agent,
+            rate_limit_seconds=(config.musicbrainz.rate_limit_ms / 1000),
+        )
+        self.cover_art_client = CoverArtArchiveClient(timeout_seconds=config.lidarr.timeout_seconds)
+        self.processing_service = ProcessingService(
+            config=config,
+            lidarr_client=self.lidarr_client,
+            musicbrainz_client=self.musicbrainz_client,
+            cover_art_client=self.cover_art_client,
+        )
         self.watcher = DirectoryWatcher(config=config, album_queue=self.album_queue)
 
     async def run(self) -> None:

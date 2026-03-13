@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-03-13
+
+### Added
+- Added MusicBrainz-first metadata enrichment with MB ID lookups and search fallback.
+- Added Cover Art Archive client support with Lidarr artwork fallback.
+- Added destination-side `cover.jpg` sidecar artwork writes when art is available.
+- Added cross-format duplicate move blocking for same-stem destination collisions.
+- Added ingest settle guard controls for waiting on stable file snapshots before processing.
+- Added artist identity validation to fail moves when artist metadata cannot be resolved.
+
+### Changed
+- Updated processing to track per-folder progress (`processed`, `skipped`, `failed`) during album runs.
+- Deferred source-folder cleanup until all discovered files in a folder reach a terminal outcome.
+- Updated application/config wiring for MusicBrainz runtime settings and client initialization.
+- Updated project documentation for MusicBrainz/CAA behavior, ingest settle guard behavior, and new environment variables.
+- Updated destination path behavior to enforce artist-folder-first roots when top-level templates resolve to album-only paths.
+
 ## [v0.1.4] - 2026-03-12
 
 ### Security

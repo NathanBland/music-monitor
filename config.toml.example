@@ -12,6 +12,16 @@ base_url = "http://lidarr:8686"
 api_key = "set-me"
 timeout_seconds = 10.0
 
+[musicbrainz]
+user_agent = "music-monitor/0.1.0 (you@example.com)"
+rate_limit_ms = 1000
+
+[ingest]
+settle_enabled = true
+poll_interval_seconds = 2.0
+stable_polls_required = 3
+max_wait_seconds = 300.0
+
 [logging]
 level = "INFO"
 file_path = "/logs/music-monitor.log"

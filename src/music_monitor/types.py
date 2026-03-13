@@ -33,3 +33,19 @@ class NamingFormats:
 class AlbumLookupResult:
     album_art_bytes: bytes | None
     release_year: str | None
+
+
+@dataclass
+class MusicBrainzLookupResult:
+    artist_name: str | None = None
+    album_title: str | None = None
+    track_title: str | None = None
+    track_number: int | None = None
+    track_total: int | None = None
+    medium_number: int | None = None
+    medium_total: int | None = None
+    release_year: str | None = None
+    musicbrainz_track_id: str | None = None
+    musicbrainz_album_id: str | None = None
+    musicbrainz_artist_id: str | None = None
+    musicbrainz_album_artist_id: str | None = None

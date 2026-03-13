@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
 
 import musicbrainzngs  # type: ignore[import-untyped]
 
